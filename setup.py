@@ -3,11 +3,11 @@ import setuptools
 
 ########################################################################################################################
 
-plugin_identifier = "psucontrol"
+plugin_identifier = "filamentsensororange"
 plugin_package = "octoprint_%s" % plugin_identifier
-plugin_name = "OctoPrint-PSUControl"
-plugin_version = "0.1.7"
-plugin_description = "Control ATX/AUX power supply."
+plugin_name = "OctoPrint Filament sensor for Orange Pi gpio"
+plugin_version = "0.0.1"
+plugin_description = "Filament sensor with system commands"
 plugin_author = "Shawn Bruce"
 plugin_author_email = "kantlivelong@gmail.com"
 plugin_url = "https://github.com/kantlivelong/OctoPrint-PSUControl"

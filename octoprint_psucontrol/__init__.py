@@ -67,11 +67,11 @@ except:
                 self.on_reset()
 
 
-class PSUControl(octoprint.plugin.StartupPlugin,
-                   octoprint.plugin.TemplatePlugin,
-                   octoprint.plugin.AssetPlugin,
-                   octoprint.plugin.SettingsPlugin,
-                   octoprint.plugin.SimpleApiPlugin):
+class FilamentControl(octoprint.plugin.StartupPlugin,
+                      octoprint.plugin.TemplatePlugin,
+                      octoprint.plugin.AssetPlugin,
+                      octoprint.plugin.SettingsPlugin,
+                      octoprint.plugin.SimpleApiPlugin):
 
     def __init__(self):
         try:
@@ -100,7 +100,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.autoOn = False
         self.autoOnTriggerGCodeCommands = ''
         self._autoOnTriggerGCodeCommandsArray = []
-        self.enablePowerOffWarningDialog = True
+        self.enableFilamentOffWarningDialog = True
         self.powerOffWhenIdle = False
         self.idleTimeout = 0
         self.idleIgnoreCommands = ''
@@ -112,10 +112,10 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.invertsenseGPIOPin = False
         self.senseGPIOPinPUD = ''
         self.senseSystemCommand = ''
-        self.isPSUOn = False
-        self._noSensing_isPSUOn = False
-        self._check_psu_state_thread = None
-        self._check_psu_state_event= threading.Event()
+        self.isFilamentOn = False
+        self._noSensing_isFilamentOn = False
+        self._check_filament_state_thread = None
+        self._check_filament_state_event= threading.Event()
         self._idleTimer = None
         self._waitForHeaters = False
         self._skipIdleTimer = False
@@ -188,8 +188,8 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self._autoOnTriggerGCodeCommandsArray = self.autoOnTriggerGCodeCommands.split(',')
         self._logger.debug("autoOnTriggerGCodeCommands: %s" % self.autoOnTriggerGCodeCommands)
 
-        self.enablePowerOffWarningDialog = self._settings.get_boolean(["enablePowerOffWarningDialog"])
-        self._logger.debug("enablePowerOffWarningDialog: %s" % self.enablePowerOffWarningDialog)
+        self.enableFilamentOffWarningDialog = self._settings.get_boolean(["enableFilamentOffWarningDialog"])
+        self._logger.debug("enableFilamentOffWarningDialog: %s" % self.enableFilamentOffWarningDialog)
 
         self.powerOffWhenIdle = self._settings.get_boolean(["powerOffWhenIdle"])
         self._logger.debug("powerOffWhenIdle: %s" % self.powerOffWhenIdle)
@@ -221,9 +221,9 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         if self.switchingMethod == 'GPIO' or self.sensingMethod == 'GPIO':
             self._configure_gpio()
 
-        self._check_psu_state_thread = threading.Thread(target=self._check_psu_state)
-        self._check_psu_state_thread.daemon = True
-        self._check_psu_state_thread.start()
+        self._check_filament_state_thread = threading.Thread(target=self._check_filament_state)
+        self._check_filament_state_thread.daemon = True
+        self._check_filament_state_thread.start()
 
         self._start_idle_timer()
 
@@ -314,12 +314,12 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             except (RuntimeError, ValueError) as e:
                 self._logger.error(e)
 
-    def check_psu_state(self):
-        self._check_psu_state_event.set()
+    def check_filament_state(self):
+        self._check_filament_state_event.set()
 
-    def _check_psu_state(self):
+    def _check_filament_state(self):
         while True:
-            old_isPSUOn = self.isPSUOn
+            old_isFilamentOn = self.isFilamentOn
 
             if self.sensingMethod == 'GPIO':
                 if not self._hasGPIO:
@@ -335,16 +335,16 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                 self._logger.debug("Result: %s" % r)
 
                 if r==1:
-                    new_isPSUOn = True
+                    new_isFilamentOn = True
                 elif r==0:
-                    new_isPSUOn = False
+                    new_isFilamentOn = False
 
                 if self.invertsenseGPIOPin:
-                    new_isPSUOn = not new_isPSUOn
+                    new_isFilamentOn = not new_isFilamentOn
 
-                self.isPSUOn = new_isPSUOn
+                self.isFilamentOn = new_isFilamentOn
             elif self.sensingMethod == 'SYSTEM':
-                new_isPSUOn = False
+                new_isFilamentOn = False
 
                 p = subprocess.Popen(self.senseSystemCommand, shell=True)
                 self._logger.debug("Sensing system command executed. PID=%s, Command=%s" % (p.pid, self.senseSystemCommand))
@@ -354,32 +354,32 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                 self._logger.debug("Sensing system command returned: %s" % r)
 
                 if r==0:
-                    new_isPSUOn = True
+                    new_isFilamentOn = True
                 elif r==1:
-                    new_isPSUOn = False
+                    new_isFilamentOn = False
 
-                self.isPSUOn = new_isPSUOn
+                self.isFilamentOn = new_isFilamentOn
             elif self.sensingMethod == 'INTERNAL':
-                self.isPSUOn = self._noSensing_isPSUOn
+                self.isFilamentOn = self._noSensing_isFilamentOn
             else:
                 return
             
-            self._logger.debug("isPSUOn: %s" % self.isPSUOn)
+            self._logger.debug("isFilamentOn: %s" % self.isFilamentOn)
 
-            if (old_isPSUOn != self.isPSUOn) and self.isPSUOn:
+            if (old_isFilamentOn != self.isFilamentOn) and self.isFilamentOn:
                 self._start_idle_timer()
-            elif (old_isPSUOn != self.isPSUOn) and not self.isPSUOn:
+            elif (old_isFilamentOn != self.isFilamentOn) and not self.isFilamentOn:
                 self._stop_idle_timer()
 
-            self._plugin_manager.send_plugin_message(self._identifier, dict(hasGPIO=self._hasGPIO, isPSUOn=self.isPSUOn))
+            self._plugin_manager.send_plugin_message(self._identifier, dict(hasGPIO=self._hasGPIO, isFilamentOn=self.isFilamentOn))
 
-            self._check_psu_state_event.wait(5)
-            self._check_psu_state_event.clear()
+            self._check_filament_state_event.wait(5)
+            self._check_filament_state_event.clear()
 
     def _start_idle_timer(self):
         self._stop_idle_timer()
         
-        if self.powerOffWhenIdle and self.isPSUOn:
+        if self.powerOffWhenIdle and self.isFilamentOn:
             self._idleTimer = ResettableTimer(self.idleTimeout * 60, self._idle_poweroff)
             self._idleTimer.start()
 
@@ -410,7 +410,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self._logger.info("Idle timeout reached after %s minute(s). Turning heaters off prior to shutting off PSU." % self.idleTimeout)
         if self._wait_for_heaters():
             self._logger.info("Heaters below temperature.")
-            self.turn_psu_off()
+            self.turn_filament_off()
         else:
             self._logger.info("Aborted PSU shut down due to activity.")
 
@@ -460,19 +460,19 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         if gcode:
             if self.enablePseudoOnOff:
                 if gcode == self.pseudoOnGCodeCommand:
-                    self.turn_psu_on()
+                    self.turn_filament_on()
                     comm_instance._log("PSUControl: ok")
                     skipQueuing = True
                 elif gcode == self.pseudoOffGCodeCommand:
-                    self.turn_psu_off()
+                    self.turn_filament_off()
                     comm_instance._log("PSUControl: ok")
                     skipQueuing = True
 
-            if (not self.isPSUOn and self.autoOn and (gcode in self._autoOnTriggerGCodeCommandsArray)):
+            if (not self.isFilamentOn and self.autoOn and (gcode in self._autoOnTriggerGCodeCommandsArray)):
                 self._logger.info("Auto-On - Turning PSU On (Triggered by %s)" % gcode)
-                self.turn_psu_on()
+                self.turn_filament_on()
 
-            if self.powerOffWhenIdle and self.isPSUOn and not self._skipIdleTimer:
+            if self.powerOffWhenIdle and self.isFilamentOn and not self._skipIdleTimer:
                 if not (gcode in self._idleIgnoreCommandsArray):
                     self._waitForHeaters = False
                     self._reset_idle_timer()
@@ -480,7 +480,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
             if skipQueuing:
                 return (None,)
 
-    def turn_psu_on(self):
+    def turn_filament_on(self):
         if self.switchingMethod == 'GCODE' or self.switchingMethod == 'GPIO' or self.switchingMethod == 'SYSTEM':
             self._logger.info("Switching PSU On")
             if self.switchingMethod == 'GCODE':
@@ -512,12 +512,12 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                     self._logger.error(e)
 
             if self.sensingMethod not in ('GPIO','SYSTEM'):
-                self._noSensing_isPSUOn = True
+                self._noSensing_isFilamentOn = True
          
             time.sleep(0.1 + self.postOnDelay)
-            self.check_psu_state()
+            self.check_filament_state()
         
-    def turn_psu_off(self):
+    def turn_filament_off(self):
         if self.switchingMethod == 'GCODE' or self.switchingMethod == 'GPIO' or self.switchingMethod == 'SYSTEM':
             self._logger.info("Switching PSU Off")
             if self.switchingMethod == 'GCODE':
@@ -552,34 +552,34 @@ class PSUControl(octoprint.plugin.StartupPlugin,
                 self._printer.disconnect()
                 
             if self.sensingMethod not in ('GPIO','SYSTEM'):
-                self._noSensing_isPSUOn = False
+                self._noSensing_isFilamentOn = False
                         
             time.sleep(0.1)
-            self.check_psu_state()
+            self.check_filament_state()
 
     def get_api_commands(self):
         return dict(
-            turnPSUOn=[],
-            turnPSUOff=[],
-            togglePSU=[],
-            getPSUState=[]
+            turnFilamentOn=[],
+            turnFilamentOff=[],
+            toggleFilament=[],
+            getFilamentState=[]
         )
 
     def on_api_command(self, command, data):
         if not user_permission.can():
             return make_response("Insufficient rights", 403)
         
-        if command == 'turnPSUOn':
-            self.turn_psu_on()
-        elif command == 'turnPSUOff':
-            self.turn_psu_off()
-        elif command == 'togglePSU':
-            if self.isPSUOn:
-                self.turn_psu_off()
+        if command == 'turnFilamentOn':
+            self.turn_filament_on()
+        elif command == 'turnFilamentOff':
+            self.turn_filament_off()
+        elif command == 'toggleFilament':
+            if self.isFilamentOn:
+                self.turn_filament_off()
             else:
-                self.turn_psu_on()
-        elif command == 'getPSUState':
-            return jsonify(isPSUOn=self.isPSUOn)
+                self.turn_filament_on()
+        elif command == 'getFilamentState':
+            return jsonify(isFilamentOn=self.isFilamentOn)
 
     def get_settings_defaults(self):
         return dict(
@@ -645,7 +645,7 @@ class PSUControl(octoprint.plugin.StartupPlugin,
         self.powerOffWhenIdle = self._settings.get_boolean(["powerOffWhenIdle"])
         self.idleTimeout = self._settings.get_int(["idleTimeout"])
         self.idleIgnoreCommands = self._settings.get(["idleIgnoreCommands"])
-        self.enablePowerOffWarningDialog = self._settings.get_boolean(["enablePowerOffWarningDialog"])
+        self.enableFilamentOffWarningDialog = self._settings.get_boolean(["enablePowerOffWarningDialog"])
         self._idleIgnoreCommandsArray = self.idleIgnoreCommands.split(',')
         self.idleTimeoutWaitTemp = self._settings.get_int(["idleTimeoutWaitTemp"])
 
@@ -712,34 +712,34 @@ class PSUControl(octoprint.plugin.StartupPlugin,
 
     def get_assets(self):
         return {
-            "js": ["js/psucontrol.js"],
-            "less": ["less/psucontrol.less"],
-            "css": ["css/psucontrol.min.css"]
+            "js": ["js/filamentsensororange.js"],
+            "less": ["less/filamentsensororange.less"],
+            "css": ["css/filamentsensororange.min.css"]
 
         } 
 
     def get_update_information(self):
         return dict(
-            psucontrol=dict(
-                displayName="PSU Control",
+            filamentsensororange=dict(
+                displayName="OctoPrint Filament sensor for Orange Pi gpio",
                 displayVersion=self._plugin_version,
 
                 # version check: github repository
                 type="github_release",
-                user="kantlivelong",
-                repo="OctoPrint-PSUControl",
+                user="bazis",
+                repo="OctoPrint_Filament_sensor_for_Orange",
                 current=self._plugin_version,
 
                 # update method: pip w/ dependency links
-                pip="https://github.com/kantlivelong/OctoPrint-PSUControl/archive/{target_version}.zip"
+                pip="https://github.com/bazis/OctoPrint_Filament_sensor_for_Orange/archive/{target_version}.zip"
             )
         )
 
-__plugin_name__ = "PSU Control"
+__plugin_name__ = "OctoPrint Filament sensor for Orange Pi gpio"
 
 def __plugin_load__():
     global __plugin_implementation__
-    __plugin_implementation__ = PSUControl()
+    __plugin_implementation__ = FilamentControl()
 
     global __plugin_hooks__
     __plugin_hooks__ = {
